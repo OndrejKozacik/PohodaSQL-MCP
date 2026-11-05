@@ -96,7 +96,7 @@ Ruční alternativa bez balíčku (`%APPDATA%\Claude\claude_desktop_config.json`
 Balíček `.mcpb` je obyčejný ZIP. Pro Codex a Claude Code (a ruční instalaci do Claude Desktopu) ho rozbal:
 
 ```powershell
-Copy-Item pohoda-mcp-0.2.3.mcpb pohoda-mcp.zip
+Copy-Item pohoda-mcp-0.2.4.mcpb pohoda-mcp.zip
 Expand-Archive pohoda-mcp.zip C:\PohodaSQL
 ```
 
