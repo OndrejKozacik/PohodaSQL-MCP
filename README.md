@@ -14,7 +14,20 @@ nápovědu programu, kontrolu skriptu proti schématu a volitelně **read-only s
 
 ## Obsah
 
-[Rychlý start](#rychlý-start-claude-desktop) · [Nástroje](#nástroje) · [Požadavky](#požadavky) · [Instalace](#instalace) · [Nastavení](#nastavení-serveru) · [Přihlášení k SQL](#přihlášení-k-sql) · [Adresa SQL serveru](#adresa-sql-serveru) · [Bezpečnost](#bezpečnostní-model-pohoda_run_query) · [Konfigurační soubor](#konfigurační-soubor) · [Příklady](#příklady-zadání) · [Ze zdrojů](#spuštění-ze-zdrojů-a-sestavení-balíčku) · [Testy](#testy) · [Stav ověření](#stav-ověření) · [Licence](#licence-a-upozornění)
+- [Rychlý start](#rychlý-start-claude-desktop)
+- [Nástroje](#nástroje)
+- [Požadavky](#požadavky)
+- [Instalace](#instalace)
+- [Nastavení](#nastavení-serveru)
+- [Přihlášení k SQL](#přihlášení-k-sql)
+- [Adresa SQL serveru](#adresa-sql-serveru)
+- [Bezpečnost](#bezpečnostní-model-pohoda_run_query)
+- [Konfigurační soubor](#konfigurační-soubor)
+- [Příklady](#příklady-zadání)
+- [Ze zdrojů](#spuštění-ze-zdrojů-a-sestavení-balíčku)
+- [Testy](#testy)
+- [Stav ověření](#stav-ověření)
+- [Licence](#licence-a-upozornění)
 
 ## Rychlý start (Claude Desktop)
 
@@ -275,5 +288,5 @@ test/                sqlgate.test.js, config.test.js, smoke.js, fixtures/
 - Projekt **není oficiálním produktem společnosti STORMWARE s.r.o.**; POHODA je jejím produktem a ochrannou známkou.
 - Uživatelská nápověda programu POHODA, která je součástí balíčku z Releases, je dílem společnosti STORMWARE s.r.o.; práva k ní zůstávají jejímu autorovi.
   Není součástí zdrojových souborů v tomto repozitáři.
-- Ke zdrojovému kódu zatím není přiložena licence (v `package.json` je `UNLICENSED`, tj. všechna práva vyhrazena).
+- Zdrojový kód je vydán pod licencí [MIT](LICENSE). Licence se vztahuje na soubory tohoto repozitáře; **nevztahuje se na uživatelskou nápovědu programu POHODA** obsaženou v balíčku z Releases.
 - Server posílá výsledky dotazů AI asistentovi; za volbu povolených databází a za nakládání s daty odpovídá uživatel.

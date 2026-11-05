@@ -14,7 +14,7 @@
     "zod": "^4.6.7"
   },
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   }
