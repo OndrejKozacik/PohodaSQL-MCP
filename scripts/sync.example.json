@@ -1,0 +1,7 @@
+{
+  "_popis": "Vzor konfigurace Sync-Knowledge.ps1. Zkopiruj jako sync.local.json (ten je v .gitignore) a dopln skutecne hodnoty.",
+  "schemata": ["obecny"],
+  "prejmenovani": {},
+  "nahrady": [],
+  "priklady": {}
+}

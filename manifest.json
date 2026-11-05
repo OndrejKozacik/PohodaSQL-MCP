@@ -1,0 +1,68 @@
+{
+  "manifest_version": "0.2",
+  "name": "pohoda-mcp",
+  "display_name": "Pohoda SQL",
+  "version": "0.2.3",
+  "description": "Psaní a ověřování T-SQL dotazů nad databází účetního programu POHODA (Stormware): doménová pravidla, schéma, nápověda, kontrola dotazu a read-only spuštění.",
+  "long_description": "Server poskytuje asistentovi doménová pravidla a schéma databáze Pohody (CZ i SK), uživatelskou nápovědu, statickou kontrolu skriptu proti schématu a volitelně read-only spuštění dotazu (transakce se vždy vrací, jen povolené databáze). Vyžaduje Windows a Windows PowerShell 5.1.",
+  "author": { "name": "Pohoda AI" },
+  "license": "UNLICENSED",
+  "server": {
+    "type": "node",
+    "entry_point": "src/server.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/src/server.js"],
+      "env": {
+        "POHODA_RUN_QUERY": "${user_config.run_query_enabled}",
+        "POHODA_SQL_SERVER": "${user_config.sql_server}",
+        "POHODA_ALLOWED_DATABASES": "${user_config.allowed_databases}",
+        "POHODA_CREDENTIAL_FILE": "${user_config.credential_file}"
+      }
+    }
+  },
+  "tools": [
+    { "name": "pohoda_rules", "description": "Doménová pravidla pro SQL nad Pohodou (jádro a kapitoly)" },
+    { "name": "pohoda_schema", "description": "Popis tabulek a sloupců, hledání ve schématu" },
+    { "name": "pohoda_help", "description": "Fulltext v uživatelské nápovědě Pohody (CZ/SK)" },
+    { "name": "pohoda_check_query", "description": "Statická kontrola SQL skriptu proti schématu" },
+    { "name": "pohoda_run_query", "description": "Read-only spuštění dotazu (ROLLBACK) na povolených databázích" },
+    { "name": "pohoda_status", "description": "Stav serveru a povolené databáze" }
+  ],
+  "prompts": [
+    { "name": "pohoda_sql", "description": "Pracovní postup pro psaní SQL pro Pohodu", "arguments": ["zadani"], "text": "Postupuj podle instrukcí serveru pohoda-mcp: pohoda_rules, pohoda_schema, pohoda_check_query. Zadání: ${arguments.zadani}" }
+  ],
+  "user_config": {
+    "run_query_enabled": {
+      "type": "boolean",
+      "title": "Povolit spouštění dotazů (pohoda_run_query)",
+      "description": "Vypnuto = server jen radí a kontroluje, k databázi se nepřipojuje. Výsledky dotazů se posílají modelu v cloudu.",
+      "default": false,
+      "required": false
+    },
+    "sql_server": {
+      "type": "string",
+      "title": "Adresa SQL serveru",
+      "description": "host, host,port nebo host\\instance, např. 127.0.0.1,1433 (výchozí) nebo SRV01\\POHODA. Server musí být z tohoto počítače dosažitelný.",
+      "default": "127.0.0.1,1433",
+      "required": false
+    },
+    "allowed_databases": {
+      "type": "string",
+      "title": "Povolené databáze (oddělené čárkou)",
+      "description": "Výchozí je jen modelová firma StwPh_12345678_2026. Reálné firmy přidávej vědomě – výsledky půjdou k modelu v cloudu.",
+      "default": "StwPh_12345678_2026",
+      "required": false
+    },
+    "credential_file": {
+      "type": "file",
+      "title": "Soubor s přihlášením k SQL (Export-Clixml)",
+      "description": "Vytvoří ho tools\\Set-PohodaCredential.ps1 (read-only login). Soubor je šifrovaný pro vašeho uživatele Windows; server heslo nikdy neuvidí, čte ho jen PowerShell pomocník.",
+      "required": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["win32"],
+    "runtimes": { "node": ">=18.0.0" }
+  }
+}

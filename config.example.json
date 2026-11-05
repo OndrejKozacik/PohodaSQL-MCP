@@ -1,0 +1,12 @@
+{
+  "runQuery": {
+    "enabled": true,
+    "server": "127.0.0.1,1433",
+    "credentialFile": "C:/PohodaSQL/secrets/pohoda-sql.xml",
+    "allowedDatabases": ["StwPh_12345678_2026"],
+    "maxRowsPerSet": 200,
+    "maxRowsHard": 2000,
+    "maxChars": 60000,
+    "timeoutSec": 60
+  }
+}

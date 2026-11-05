@@ -1,0 +1,8 @@
+node_modules/
+dist/
+knowledge/
+logs/
+config.json
+secrets/
+*.mcpb
+scripts/sync.local.json
