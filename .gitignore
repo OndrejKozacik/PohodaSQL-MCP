@@ -6,3 +6,5 @@ config.json
 secrets/
 *.mcpb
 scripts/sync.local.json
+knowledge.new/
+knowledge.old/

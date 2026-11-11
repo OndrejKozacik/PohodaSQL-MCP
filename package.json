@@ -1,11 +1,12 @@
 {
   "name": "pohoda-mcp",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "MCP server pro psani T-SQL nad Pohodou (Stormware): pravidla, schema, napoveda, kontrola a read-only spusteni dotazu",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test test/"
+    "test": "node --test test/sqlgate.test.js test/config.test.js test/knowledge.test.js test/exec.test.js",
+    "smoke": "node test/smoke.js"
   },
   "keywords": [],
   "type": "module",
@@ -16,6 +17,6 @@
   "private": true,
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
   }
 }

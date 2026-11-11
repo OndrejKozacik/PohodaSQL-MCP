@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "pohoda-mcp",
   "display_name": "Pohoda SQL",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "Psaní a ověřování T-SQL dotazů nad databází účetního programu POHODA (Stormware): doménová pravidla, schéma, nápověda, kontrola dotazu a read-only spuštění.",
   "long_description": "Server poskytuje asistentovi doménová pravidla a schéma databáze Pohody (CZ i SK), uživatelskou nápovědu, statickou kontrolu skriptu proti schématu a volitelně read-only spuštění dotazu (transakce se vždy vrací, jen povolené databáze). Vyžaduje Windows a Windows PowerShell 5.1.",
   "author": { "name": "Pohoda AI" },
@@ -57,7 +57,7 @@
     "credential_file": {
       "type": "file",
       "title": "Soubor s přihlášením k SQL (Export-Clixml)",
-      "description": "Vytvoří ho tools\\Set-PohodaCredential.ps1 (read-only login). Soubor je šifrovaný pro vašeho uživatele Windows; server heslo nikdy neuvidí, čte ho jen PowerShell pomocník.",
+      "description": "Vytvoří ho příkaz Get-Credential | Export-Clixml <cesta> (read-only SQL login). Soubor je šifrovaný pro vašeho uživatele Windows; server heslo nikdy neuvidí, čte ho jen PowerShell pomocník.",
       "required": false
     }
   },

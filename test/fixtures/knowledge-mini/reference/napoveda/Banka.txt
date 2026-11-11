@@ -1,0 +1,33 @@
+Banka
+
+Agenda Banka eviduje pohyby na účtech.
+Řádek 1: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 2: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 3: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 4: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 5: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 6: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 7: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 8: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 9: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 10: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 11: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 12: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 13: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 14: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 15: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 16: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 17: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 18: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 19: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 20: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 21: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 22: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 23: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 24: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 25: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 26: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 27: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 28: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 29: párovací symbol se zapisuje u každého pohybu, symbol symbol.
+Řádek 30: párovací symbol se zapisuje u každého pohybu, symbol symbol.

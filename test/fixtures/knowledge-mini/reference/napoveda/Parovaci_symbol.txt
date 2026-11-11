@@ -1,0 +1,4 @@
+Párovací symbol
+
+Párovací symbol slouží ke spojení úhrady s dokladem.
+Vyplňuje se v poli na dokladu.

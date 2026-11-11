@@ -1,0 +1,4 @@
+Párovací symbol v bance
+
+Párovací symbol se v bance přebírá z výpisu. Párovací symbol lze opravit. Párovací symbol je povinný.
+Párovací symbol se porovnává s číslem dokladu. Párovací symbol bez dokladu zůstane nespárovaný.
