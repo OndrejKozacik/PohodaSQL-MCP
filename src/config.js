@@ -87,15 +87,53 @@ function fileDatabases(value, errors) {
     errors.push(`config.json: runQuery.allowedDatabases musí být neprázdné pole názvů databází (použita výchozí ${MODEL_DB}).`);
     return undefined;
   }
+  // řetězec se na středníku dělí (splitList); v poli by středník zůstal v názvu a pomocník (ps\Run-Query.ps1, -AllowedDatabases
+  // oddělené středníkem) by z jednoho názvu udělal dva
+  const semicolon = list.find((d) => d.includes(';'));
+  if (semicolon !== undefined) {
+    errors.push(`config.json: runQuery.allowedDatabases – název databáze „${semicolon.trim().slice(0, 60)}“ obsahuje středník, ten v názvu být nesmí; každou databázi uveď jako samostatnou položku pole (použita výchozí ${MODEL_DB}).`);
+    return undefined;
+  }
   return list.map((d) => d.trim());
+}
+
+// Režim pravidel: `full` = pohoda_rules bez parametrů vrací celé jádro; `compact` = kompaktní jádro s rejstříkem sekcí.
+export const RULES_MODES = ['full', 'compact'];
+export const DEFAULT_RULES_MODE = 'full';
+
+/**
+ * Režim pravidel: POHODA_RULES_MODE (bez ohledu na velikost písmen) → config.json `rules.mode` → `full`. Netýká se spouštění dotazů,
+ * proto neplatná hodnota není chyba (nevypíná pohoda_run_query): zapíše se do `warnings` a použije se `full`.
+ */
+function rulesMode(user, warnings) {
+  const allowed = RULES_MODES.join(' nebo ');
+  let mode = DEFAULT_RULES_MODE;
+  const rules = user.rules ?? {};
+  if (!isObject(rules)) warnings.push(`config.json: rules musí být objekt (použit režim pravidel ${DEFAULT_RULES_MODE}).`);
+  else if (rules.mode !== undefined && rules.mode !== null) {
+    const v = typeof rules.mode === 'string' ? rules.mode.trim().toLowerCase() : '';
+    if (RULES_MODES.includes(v)) mode = v;
+    else warnings.push(`config.json: rules.mode má neplatnou hodnotu „${String(rules.mode).slice(0, 40)}“ – povolené je ${allowed} (použit režim ${DEFAULT_RULES_MODE}).`);
+  }
+  const fromEnv = env('POHODA_RULES_MODE');
+  if (fromEnv !== undefined) {
+    if (RULES_MODES.includes(fromEnv.toLowerCase())) mode = fromEnv.toLowerCase();
+    else {
+      mode = DEFAULT_RULES_MODE;
+      warnings.push(`Proměnná POHODA_RULES_MODE má neplatnou hodnotu „${fromEnv.slice(0, 40)}“ – povolené je ${allowed} (použit režim ${DEFAULT_RULES_MODE}).`);
+    }
+  }
+  return mode;
 }
 
 /**
  * Načte nastavení (proměnné prostředí mají přednost před config.json). Striktně: každá chybná hodnota se zapíše do `configErrors`,
- * nahradí se výchozí a spouštění dotazů (`runQuery.enabled`) se při jakékoli chybě vypne (fail closed).
+ * nahradí se výchozí a spouštění dotazů (`runQuery.enabled`) se při jakékoli chybě vypne (fail closed). Výjimka: nastavení, které
+ * se spouštění netýká (režim pravidel), jde do `configWarnings` a spouštění nevypíná.
  */
 export function loadConfig() {
   const errors = [];
+  const warnings = [];
   const file = env('POHODA_MCP_CONFIG') || path.join(projectRoot, 'config.json');
   const { user, found } = readConfigFile(file, errors);
 
@@ -121,6 +159,25 @@ export function loadConfig() {
     if (/^(1|true|yes|on)$/i.test(envEnabled)) enabled = true;
     else if (/^(0|false|no|off)$/i.test(envEnabled)) enabled = false;
     else errors.push(`Proměnná POHODA_RUN_QUERY má neplatnou hodnotu „${envEnabled.slice(0, 40)}“ – povolené je 1/true/yes/on nebo 0/false/no/off.`);
+  }
+
+  // login, který smí zapisovat, se před během odmítá; vědomé povolení: POHODA_ALLOW_WRITABLE_LOGIN (1/true/yes/on · 0/false/no/off)
+  // → runQuery.allowWritableLogin (boolean) → zakázáno. Záměrně není ve formuláři manifestu.
+  let allowWritableLogin = false;
+  if (rq.allowWritableLogin !== undefined && rq.allowWritableLogin !== null) {
+    if (typeof rq.allowWritableLogin === 'boolean') allowWritableLogin = rq.allowWritableLogin;
+    else errors.push('config.json: runQuery.allowWritableLogin musí být true nebo false (bez uvozovek).');
+  }
+  const envAllowWritable = env('POHODA_ALLOW_WRITABLE_LOGIN');
+  // nevyplněný zástupný text (${…}) = host hodnotu nedosadil → bezpečný stav (zakázáno), stejně jako u POHODA_RUN_QUERY
+  if (/^\$\{[^}]*\}$/.test((process.env.POHODA_ALLOW_WRITABLE_LOGIN ?? '').trim())) allowWritableLogin = false;
+  if (envAllowWritable !== undefined) {
+    if (/^(1|true|yes|on)$/i.test(envAllowWritable)) allowWritableLogin = true;
+    else if (/^(0|false|no|off)$/i.test(envAllowWritable)) allowWritableLogin = false;
+    else {
+      allowWritableLogin = false;
+      errors.push(`Proměnná POHODA_ALLOW_WRITABLE_LOGIN má neplatnou hodnotu „${envAllowWritable.slice(0, 40)}“ – povolené je 1/true/yes/on nebo 0/false/no/off.`);
+    }
   }
 
   // adresa SQL serveru: host[,port] nebo host\instance (např. 192.168.1.10,1433 / SRV01\POHODA)
@@ -160,11 +217,14 @@ export function loadConfig() {
     configFile: file,
     configFound: found,
     configErrors: errors,
+    configWarnings: warnings,
     agentDir,
     auditLog,
+    rules: { mode: rulesMode(user, warnings) },
     runQuery: {
       // jakákoli chyba v nastavení spouštění vypíná (fail closed) – raději žádný dotaz než dotaz s jiným nastavením, než uživatel zamýšlel
       enabled: enabled && errors.length === 0,
+      allowWritableLogin,
       server,
       credentialFile,
       allowedDatabases,

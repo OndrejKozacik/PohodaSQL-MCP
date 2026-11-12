@@ -1,12 +1,13 @@
 {
   "name": "pohoda-mcp",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "MCP server pro psani T-SQL nad Pohodou (Stormware): pravidla, schema, napoveda, kontrola a read-only spusteni dotazu",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test test/sqlgate.test.js test/config.test.js test/knowledge.test.js test/exec.test.js",
-    "smoke": "node test/smoke.js"
+    "test": "node --test test/sqlgate.test.js test/config.test.js test/knowledge.test.js test/exec.test.js test/golden-lib.test.js",
+    "smoke": "node test/smoke.js",
+    "golden": "node eval/run-golden-mcp.mjs"
   },
   "keywords": [],
   "type": "module",

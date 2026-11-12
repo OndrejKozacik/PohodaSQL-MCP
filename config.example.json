@@ -1,6 +1,7 @@
 {
   "runQuery": {
     "enabled": true,
+    "allowWritableLogin": false,
     "server": "127.0.0.1,1433",
     "credentialFile": "C:/PohodaSQL/secrets/pohoda-sql.xml",
     "allowedDatabases": ["StwPh_12345678_2026"],
@@ -8,5 +9,8 @@
     "maxRowsHard": 2000,
     "maxChars": 60000,
     "timeoutSec": 60
+  },
+  "rules": {
+    "mode": "full"
   }
 }

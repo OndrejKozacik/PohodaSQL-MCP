@@ -3,6 +3,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import fs from 'node:fs';
+import net from 'node:net';
 import path from 'node:path';
 import { projectRoot, MODEL_DB } from '../src/config.js';
 
@@ -47,12 +48,36 @@ async function start(extra) {
 }
 
 const ALL_TOOLS = ['pohoda_check_query', 'pohoda_help', 'pohoda_rules', 'pohoda_run_query', 'pohoda_schema', 'pohoda_status'];
+// pole stavu a kontroly loginu: cokoli navíc by mohlo nést názvy dalších databází, proto se kontroluje přesná sada klíčů
+const STATUS_KEYS = ['agentDir', 'configErrors', 'configFile', 'configFound', 'configWarnings', 'ruleChapters', 'rulesMode', 'runQuery', 'schemas', 'version'];
+const PROBE_KEYS = ['database', 'otherDatabases', 'otherWritableDatabases', 'reasons', 'writable'];
+const sameKeys = (o, keys) => !!o && Object.keys(o).sort().join() === [...keys].sort().join();
+const countOrNull = (v) => v === null || (Number.isInteger(v) && v >= 0);
+
+/** Odpovídá SQL Server? Jen pokus o TCP spojení na `host,port`; adresa bez portu (pojmenovaná instance) se bere jako dostupná. */
+function sqlResponds(address) {
+  const m = /^\[?([^\],\\]+)\]?,(\d+)$/.exec(String(address ?? ''));
+  if (!m) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const s = net.connect({ host: m[1], port: Number(m[2]) });
+    const done = (ok) => { s.destroy(); resolve(ok); };
+    s.setTimeout(3000, () => done(false));
+    s.on('connect', () => done(true));
+    s.on('error', () => done(false));
+  });
+}
 
 // ===== 1. běh: spouštění dotazů zapnuté (POHODA_RUN_QUERY=1) =====
 let { client, call } = await start({ POHODA_RUN_QUERY: '1' });
 
-const tools = (await client.listTools()).tools.map((t) => t.name).sort();
+const toolList = (await client.listTools()).tools;
+const tools = toolList.map((t) => t.name).sort();
 check('seznam nástrojů (spouštění zapnuté: 6)', tools.join() === ALL_TOOLS.join(), tools.join(', '));
+{
+  const hint = (name) => toolList.find((t) => t.name === name)?.annotations ?? {};
+  // pohoda_status se s probe připojuje k SQL serveru → stejná anotace jako pohoda_run_query
+  check('anotace: pohoda_status i pohoda_run_query jen čtou a sahají mimo server (openWorldHint)', ['pohoda_status', 'pohoda_run_query'].every((n) => hint(n).readOnlyHint === true && hint(n).openWorldHint === true) && hint('pohoda_rules').openWorldHint === false);
+}
 check('instrukce serveru', /pohoda_rules/.test(client.getInstructions() ?? '') && /pohoda_run_query/.test(client.getInstructions() ?? ''));
 const prompts = (await client.listPrompts()).prompts.map((p) => p.name);
 check('prompt', prompts.includes('pohoda_sql'), prompts.join());
@@ -70,6 +95,19 @@ r = await call('pohoda_rules', { chapter: 'sk' });
 check('rules kapitola sk', !r.err && /Slovenská Pohoda/.test(r.text));
 r = await call('pohoda_rules', { chapter: 'neexistuje' });
 check('rules neznámá kapitola → chyba', r.err);
+const fullCoreLength = (await call('pohoda_rules')).text.length;
+r = await call('pohoda_rules', { section: '5' });
+check('rules section "5": jedna sekce jádra (obsahuje RelTpFak, kratší než jádro)', !r.err && /RelTpFak/.test(r.text) && r.text.length < fullCoreLength, `${r.text.length} znaků`);
+r = await call('pohoda_rules', { search: 'RelTpFak' });
+check('rules search "RelTpFak": seznam sekcí (hlavička „Nalezeno“)', !r.err && /^Nalezeno \d+ sekcí pravidel/.test(r.text), r.text.split('\n')[0]);
+r = await call('pohoda_rules', { section: '5', search: 'RelTpFak' });
+check('rules section + search současně → chyba', r.err && /section a search nejde použít v jednom volání/.test(r.text), short(r.text));
+// id sekce z nečíslovaného nadpisu má až 42 znaků (slug 40 + přípona „-2“): parametr musí projít až k hledání sekce, ne skončit na limitu délky
+r = await call('pohoda_rules', { section: `${'x'.repeat(40)}-2` });
+check('rules section o 42 znacích projde kontrolou parametrů (chyba „neexistuje“, ne limit délky)', r.err && /v jádru pravidel neexistuje/.test(r.text), short(r.text));
+r = await call('pohoda_rules', { search: 'storno, (dobropis)' });
+check('rules search: slova oddělená čárkou a závorkami', !r.err && /^Nalezeno \d+ sekcí pravidel/.test(r.text), r.text.split('\n')[0]);
+check('status: režim pravidel full (výchozí)', st.rulesMode === 'full', String(st.rulesMode));
 
 // schémata: `obecny` musí být, nic mimo povolenou sadu; nezávisí na tom, co má vývojář v scripts\sync.local.json
 const extraSchemas = st.schemas.filter((s) => !ALLOWED_SCHEMAS.includes(s));
@@ -147,6 +185,35 @@ if (hasSk) {
   check('check_query SK schéma', !r.err && /exit 0/.test(r.text));
 } else skip('check_query SK schéma', 'snímek neobsahuje schéma sk');
 
+// brána rozhoduje před připojením (nepotřebuje přihlášení): seznam databází serveru se k modelu nedostane
+for (const sql of ['SELECT name FROM sys.databases', 'SELECT d.name FROM [sys] . [databases] AS d', 'SELECT DB_NAME(5) AS n', 'SELECT name FROM sysdatabases']) {
+  r = await call('pohoda_run_query', { database: MODEL_DB, sql });
+  check(`brána: „${sql}“ odmítnuto`, r.err && /odmítnut/.test(r.text) && /seznam dalších databází na serveru model nedostane/.test(r.text) && !RE_REAL_DB.test(r.text));
+}
+
+// kontrola oprávnění SQL loginu (pohoda_status s probe): jen s přihlášením a když SQL Server odpovídá. Odpověď se nikdy nevypisuje –
+// kontroluje se struktura (přesná sada klíčů) a to, že v ní není název databáze reálné firmy.
+const sqlUp = runOk && await sqlResponds(st.runQuery.server);
+if (!runOk) skip('kontrola loginu (pohoda_status probe)', `chybí soubor s přihlášením (${credFile})`);
+else if (!sqlUp) skip('kontrola loginu (pohoda_status probe)', `SQL Server ${st.runQuery.server} neodpovídá`);
+else {
+  r = await call('pohoda_status', { probe: true, database: MODEL_DB });
+  const ps = r.err ? {} : JSON.parse(r.text);
+  const lp = ps.loginProbe;
+  check('probe: stav má navíc jen loginProbe', !r.err && sameKeys(ps, [...STATUS_KEYS, 'loginProbe']), Object.keys(ps).join());
+  check('probe: kontrola proběhla (žádná chyba)', !!lp && lp.error === undefined, lp ? Object.keys(lp).join() : 'loginProbe chybí');
+  check('probe: loginProbe má přesně pole database, writable, reasons, otherDatabases, otherWritableDatabases', sameKeys(lp, PROBE_KEYS), lp ? Object.keys(lp).join() : '');
+  check('probe: login smí jen číst (writable = false, žádné důvody)', lp?.writable === false && Array.isArray(lp?.reasons) && lp.reasons.length === 0, `writable=${lp?.writable}; důvody: ${(lp?.reasons ?? []).join(', ')}`);
+  check('probe: databáze je modelová', lp?.database === MODEL_DB);
+  check('probe: otherDatabases a otherWritableDatabases jsou počty nebo null', countOrNull(lp?.otherDatabases) && countOrNull(lp?.otherWritableDatabases), `${lp?.otherDatabases} / ${lp?.otherWritableDatabases}`);
+  check('probe: v loginProbe není název databáze reálné firmy', !RE_REAL_DB.test(JSON.stringify(lp ?? null)));
+  r = await call('pohoda_status', { probe: true, database: 'StwPhSK_00000000' });
+  const bad = r.err ? {} : JSON.parse(r.text);
+  check('probe: nepovolená databáze → loginProbe.error, zbytek stavu zůstává', sameKeys(bad.loginProbe, ['error']) && /není povolená/.test(bad.loginProbe.error) && bad.version === st.version);
+  r = await call('pohoda_status');
+  check('status bez probe: žádné loginProbe', !r.err && sameKeys(JSON.parse(r.text), STATUS_KEYS));
+}
+
 if (!runOk) skip('kontroly pohoda_run_query', `chybí soubor s přihlášením (${credFile})`);
 if (runOk) {
 // databáze se uvádí výslovně: test se nesmí dotknout jiné než modelové DB, ani kdyby místní config.json povoloval další
@@ -188,6 +255,24 @@ r = await call('pohoda_status');
 }
 r = await call('pohoda_run_query', { database: MODEL_DB, sql: 'SELECT 1 AS a' });
 check('vypnuté spouštění: volání pohoda_run_query → chyba', r.err, short(r.text));
+r = await call('pohoda_status', { probe: true });
+{
+  // probe při vypnutém spouštění nesmí mlčet: loginProbe.error s důvodem, zbytek stavu beze změny (k SQL serveru se nepřipojuje)
+  const off = r.err ? {} : JSON.parse(r.text);
+  check('vypnuté spouštění: probe vrací loginProbe.error', sameKeys(off, [...STATUS_KEYS, 'loginProbe']) && sameKeys(off.loginProbe, ['error']) && off.loginProbe.error === 'pohoda_run_query je vypnuté – kontrolu loginu nelze provést.', short(String(off.loginProbe?.error)));
+}
+await client.close();
+
+// ===== 3. běh: kompaktní režim pravidel (POHODA_RULES_MODE=compact) =====
+({ client, call } = await start({ POHODA_RUN_QUERY: '0', POHODA_RULES_MODE: 'compact' }));
+r = await call('pohoda_status');
+check('compact: status rulesMode = compact, žádná upozornění', !r.err && JSON.parse(r.text).rulesMode === 'compact' && JSON.parse(r.text).configWarnings.length === 0);
+r = await call('pohoda_rules');
+check('compact: pohoda_rules bez parametrů je kratší než v režimu full a obsahuje rejstřík', !r.err && r.text.length < fullCoreLength && /Rejstřík ostatních sekcí jádra/.test(r.text) && /Dostupné kapitoly/.test(r.text), `${r.text.length} < ${fullCoreLength} znaků`);
+// kompaktní jádro: sekce 8.1 (LEFT JOIN na číselníky) v plném znění, její nadřazená sekce 8 jen v rejstříku se zbylou velikostí
+check('compact: kompaktní jádro obsahuje sekci 8.1 a v patičce výčet sekcí', !r.err && /^### 8\.1\. /m.test(r.text) && /Toto je KOMPAKTNÍ jádro pravidel: .* sekce 0, 1, 2, 3, 4, 5\.2, 5\.3, 8\.1, 8\.2, 9, 10, 11\.6\./.test(r.text) && /^- 8 – .* znaků bez podsekcí 8\.1, 8\.2 vrácených výše\)$/m.test(r.text));
+r = await call('pohoda_rules', { section: '5' });
+check('compact: sekce mimo kompaktní jádro se načte přes section', !r.err && /RelTpFak/.test(r.text), `${r.text.length} znaků`);
 await client.close();
 
 console.log(failed ? `\n${failed} kontrol selhalo` : '\nVše prošlo');

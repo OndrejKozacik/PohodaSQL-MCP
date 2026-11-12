@@ -13,7 +13,7 @@ const withEnv = (vars, fn) => {
 };
 
 // Každý test běží s čistým prostředím (žádná proměnná POHODA_* z okolí) a s vlastním config.json v dočasné složce.
-const CLEAN = { POHODA_MCP_CONFIG: undefined, POHODA_AGENT_DIR: undefined, POHODA_RUN_QUERY: undefined, POHODA_SQL_SERVER: undefined, POHODA_ALLOWED_DATABASES: undefined, POHODA_CREDENTIAL_FILE: undefined };
+const CLEAN = { POHODA_MCP_CONFIG: undefined, POHODA_AGENT_DIR: undefined, POHODA_RUN_QUERY: undefined, POHODA_SQL_SERVER: undefined, POHODA_ALLOWED_DATABASES: undefined, POHODA_CREDENTIAL_FILE: undefined, POHODA_ALLOW_WRITABLE_LOGIN: undefined };
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pohoda-mcp-config-'));
 after(() => fs.rmSync(tmp, { recursive: true, force: true }));
 const MISSING = path.join(tmp, 'neexistuje', 'config.json');
@@ -79,10 +79,10 @@ test('bez config.json: výchozí hodnoty, žádná chyba', () => {
   assert.deepEqual(c.configErrors, []);
   assert.equal(c.configFound, false);
   assert.equal(c.configFile, MISSING);
-  assert.deepEqual(Object.keys(c).sort(), ['agentDir', 'auditLog', 'configErrors', 'configFile', 'configFound', 'runQuery']);
-  assert.deepEqual(Object.keys(c.runQuery).sort(), ['allowedDatabases', 'credentialFile', 'enabled', 'maxChars', 'maxRowsHard', 'maxRowsPerSet', 'server', 'timeoutSec']);
+  assert.deepEqual(Object.keys(c).sort(), ['agentDir', 'auditLog', 'configErrors', 'configFile', 'configFound', 'configWarnings', 'rules', 'runQuery']);
+  assert.deepEqual(Object.keys(c.runQuery).sort(), ['allowWritableLogin', 'allowedDatabases', 'credentialFile', 'enabled', 'maxChars', 'maxRowsHard', 'maxRowsPerSet', 'server', 'timeoutSec']);
   assert.deepEqual({ ...c.runQuery, credentialFile: null }, {
-    enabled: true, server: DEFAULT_SQL_SERVER, credentialFile: null, allowedDatabases: [MODEL_DB], maxRowsPerSet: 200, maxRowsHard: 2000, maxChars: 60000, timeoutSec: 60,
+    enabled: true, allowWritableLogin: false, server: DEFAULT_SQL_SERVER, credentialFile: null, allowedDatabases: [MODEL_DB], maxRowsPerSet: 200, maxRowsHard: 2000, maxChars: 60000, timeoutSec: 60,
   });
   assert.match(c.agentDir, /knowledge$/);
   assert.match(c.auditLog, /dotazy\.jsonl$/);
@@ -97,7 +97,7 @@ test('platný config.json se použije celý; configFound i pro {} a soubor s BOM
   assert.equal(c.configFound, true);
   assert.equal(c.agentDir, 'C:/x/znalosti');
   assert.equal(c.auditLog, 'C:/x/audit.jsonl');
-  assert.deepEqual(c.runQuery, { enabled: false, server: 'SRV01\\POHODA,1433', credentialFile: 'C:/x/login.xml', allowedDatabases: ['DbA', 'DbB'], maxRowsPerSet: 50, maxRowsHard: 500, maxChars: 1000, timeoutSec: 30 });
+  assert.deepEqual(c.runQuery, { enabled: false, allowWritableLogin: false, server: 'SRV01\\POHODA,1433', credentialFile: 'C:/x/login.xml', allowedDatabases: ['DbA', 'DbB'], maxRowsPerSet: 50, maxRowsHard: 500, maxChars: 1000, timeoutSec: 30 });
 
   const empty = load({});
   assert.equal(empty.configFound, true);
@@ -283,4 +283,80 @@ test('nevyplněný zástupný text POHODA_RUN_QUERY z manifestu = spouštění v
   assert.deepEqual(c.configErrors, []);
   // výslovně vyplněná hodnota ji přebije
   assert.equal(load(undefined, { POHODA_RUN_QUERY: 'true' }).runQuery.enabled, true);
+});
+
+test('runQuery.allowWritableLogin: výchozí false, jen boolean – jiný typ je chyba a vypíná spouštění', () => {
+  assert.equal(load(undefined).runQuery.allowWritableLogin, false);
+  assert.equal(load({ runQuery: {} }).runQuery.allowWritableLogin, false);
+  assert.equal(load({ runQuery: { allowWritableLogin: null } }).runQuery.allowWritableLogin, false);
+  const on = load({ runQuery: { allowWritableLogin: true } });
+  assert.equal(on.runQuery.allowWritableLogin, true);
+  assert.equal(on.runQuery.enabled, true);
+  assert.deepEqual(on.configErrors, []);
+  const off = load({ runQuery: { allowWritableLogin: false } });
+  assert.equal(off.runQuery.allowWritableLogin, false);
+  assert.deepEqual(off.configErrors, []);
+  for (const allowWritableLogin of ['true', 'false', 1, 0, 'ano', [], {}]) {
+    const c = load({ runQuery: { allowWritableLogin } });
+    assertClosed(c, /runQuery\.allowWritableLogin musí být true nebo false/, JSON.stringify(allowWritableLogin));
+    assert.equal(c.runQuery.allowWritableLogin, false, JSON.stringify(allowWritableLogin));
+  }
+});
+
+test('POHODA_ALLOW_WRITABLE_LOGIN: 1/true/yes/on a 0/false/no/off, přednost před souborem; neplatná hodnota = chyba a vypnuto', () => {
+  for (const v of ['1', 'true', 'TRUE', 'Yes', 'on', ' On ']) {
+    const c = load({ runQuery: { allowWritableLogin: false } }, { POHODA_ALLOW_WRITABLE_LOGIN: v });
+    assert.equal(c.runQuery.allowWritableLogin, true, v);
+    assert.equal(c.runQuery.enabled, true, v);
+    assert.deepEqual(c.configErrors, [], v);
+  }
+  for (const v of ['0', 'false', ' False ', 'NO', 'off']) {
+    const c = load({ runQuery: { allowWritableLogin: true } }, { POHODA_ALLOW_WRITABLE_LOGIN: v });
+    assert.equal(c.runQuery.allowWritableLogin, false, v);
+    assert.equal(c.runQuery.enabled, true, v);
+    assert.deepEqual(c.configErrors, [], v);
+  }
+  for (const v of ['ne', 'ano', '2', 'tru', 'true false', 'enabled']) {
+    const c = load({ runQuery: { allowWritableLogin: true } }, { POHODA_ALLOW_WRITABLE_LOGIN: v });
+    assertClosed(c, /POHODA_ALLOW_WRITABLE_LOGIN má neplatnou hodnotu/, v);
+    assert.equal(c.runQuery.allowWritableLogin, false, v);
+    // chyba vypíná spouštění, i když je výslovně zapnuté
+    assert.equal(load(undefined, { POHODA_ALLOW_WRITABLE_LOGIN: v, POHODA_RUN_QUERY: '1' }).runQuery.enabled, false, v);
+  }
+  // prázdná = nenastaveno → platí soubor / výchozí
+  for (const v of ['', '   ']) {
+    assert.equal(load(undefined, { POHODA_ALLOW_WRITABLE_LOGIN: v }).runQuery.allowWritableLogin, false, JSON.stringify(v));
+    assert.equal(load({ runQuery: { allowWritableLogin: true } }, { POHODA_ALLOW_WRITABLE_LOGIN: v }).runQuery.allowWritableLogin, true, JSON.stringify(v));
+  }
+});
+
+test('POHODA_ALLOW_WRITABLE_LOGIN: nevyplněný zástupný text (${…}) = zakázáno, bez chyby a bez vlivu na zapnutí spouštění', () => {
+  const c = load(undefined, { POHODA_ALLOW_WRITABLE_LOGIN: '${user_config.allow_writable_login}' });
+  assert.equal(c.runQuery.allowWritableLogin, false);
+  assert.equal(c.runQuery.enabled, true);
+  assert.deepEqual(c.configErrors, []);
+  // zástupný text přebije i povolení v souboru (bezpečný stav)
+  const f = load({ runQuery: { allowWritableLogin: true } }, { POHODA_ALLOW_WRITABLE_LOGIN: ' ${user_config.x} ' });
+  assert.equal(f.runQuery.allowWritableLogin, false);
+  assert.deepEqual(f.configErrors, []);
+});
+
+test('runQuery.allowedDatabases: středník v názvu databáze (pole) je chyba a vypíná spouštění', () => {
+  // pomocník ps\\Run-Query.ps1 dostává seznam oddělený středníkem – název se středníkem by rozdělil na dva
+  for (const allowedDatabases of [['DbA;DbB'], ['DbA', 'Db;B'], [' DbA; '], [';']]) {
+    const c = load({ runQuery: { allowedDatabases } });
+    assertClosed(c, /runQuery\.allowedDatabases – název databáze „.*“ obsahuje středník/, JSON.stringify(allowedDatabases));
+    assert.deepEqual(c.runQuery.allowedDatabases, [MODEL_DB], JSON.stringify(allowedDatabases));
+  }
+  // chyba v souboru platí, i když seznam přebije proměnná prostředí (stejně jako u ostatních chyb souboru)
+  assertClosed(load({ runQuery: { allowedDatabases: ['DbA;DbB'] } }, { POHODA_ALLOWED_DATABASES: 'DbEnv' }), /obsahuje středník/);
+  // řetězec a proměnná prostředí se na středníku dělí – žádná chyba a v žádném názvu středník nezůstane
+  const s = load({ runQuery: { allowedDatabases: 'DbA;DbB' } });
+  assert.deepEqual(s.configErrors, []);
+  assert.deepEqual(s.runQuery.allowedDatabases, ['DbA', 'DbB']);
+  const e = load(undefined, { POHODA_ALLOWED_DATABASES: 'DbA;DbB' });
+  assert.deepEqual(e.configErrors, []);
+  assert.ok(e.runQuery.allowedDatabases.every((d) => !d.includes(';')));
+  // čárka v názvu (pole) středník není – projde beze změny
+  assert.deepEqual(load({ runQuery: { allowedDatabases: ['Db,A'] } }).configErrors, []);
 });

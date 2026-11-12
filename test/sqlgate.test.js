@@ -329,3 +329,78 @@ test('akceptace: skripty golden testů tests\\vysledky', (t) => {
   }
   t.diagnostic(`vysledky: ${files.length} skriptů, přijato ${accepted}, odmítnuto ${files.length - accepted} (chyby: ${JSON.stringify(kinds)})`);
 });
+
+test('seznam databází serveru se odmítá (názvy dalších databází se nemají dostat k modelu)', () => {
+  const refused = (s, re) => { const r = checkSql(s); assert.equal(r.ok, false, s); assert.match(r.errors.join(' | '), re, s); };
+  const LIST = /Odkaz na seznam databází serveru \(„[\w.]+“\) není povolený – databázi určuje parametr `database`; seznam dalších databází na serveru model nedostane\./;
+  // zdroj ve FROM / JOIN / APPLY, různé zápisy
+  refused('SELECT name FROM sys.databases', LIST);
+  refused('SELECT d.name FROM sys . databases AS d', LIST);
+  refused('SELECT d.name FROM [sys].[databases] AS d', LIST);
+  refused('SELECT d.name FROM "sys"."databases" AS d', LIST);
+  refused('SELECT d.name FROM sys.[databases] d', LIST);
+  refused('SELECT d.name FROM SYS.DATABASES d', LIST);
+  refused('SELECT d.name FROM Sys.DataBases d', LIST);
+  refused('SELECT d.name FROM sys./* komentář */databases d', LIST);
+  refused('SELECT d.name FROM sys -- komentář\n . -- další\n databases d', LIST);
+  refused('SELECT d.name FROM sys\n.\n\tdatabases d', LIST);
+  refused('SELECT f.ID FROM dbo.FA AS f JOIN sys.databases AS d ON 1 = 1', LIST);
+  refused('SELECT f.ID FROM dbo.FA AS f CROSS APPLY (SELECT TOP 1 d.name FROM sys.databases AS d) AS x', LIST);
+  refused('SELECT name FROM master.sys.databases', LIST);
+  // kdekoli v kódu, nejen jako zdroj hned za FROM
+  refused('SELECT (SELECT TOP 1 name FROM sys.databases) AS n', LIST);
+  refused('SELECT 1 WHERE EXISTS (SELECT 1 FROM dbo.FA AS f, sys.databases AS d)', LIST);
+  refused('SELECT f.ID FROM dbo.FA AS f JOIN dbo.AD AS a ON a.ID = f.RefAD, sys.databases AS d', LIST);
+  refused('DECLARE @n sysname; SELECT @n = name FROM sys.databases WHERE database_id = 5; SELECT @n', LIST);
+  refused("SELECT OBJECT_ID(N'x'), sys.databases.name FROM dbo.FA", LIST);
+  // starší názvy a soubory databází
+  assert.match(errs('SELECT name FROM sys.databases'), /„sys\.databases“/);
+  assert.match(errs('SELECT name FROM sys.sysdatabases'), /„sys\.sysdatabases“/);
+  assert.match(errs('SELECT name FROM sysdatabases'), /„sysdatabases“/);
+  assert.match(errs('SELECT name FROM dbo.sysdatabases'), /„sysdatabases“/);
+  assert.match(errs('SELECT name FROM [sysdatabases]'), /„sysdatabases“/);
+  assert.match(errs('SELECT name FROM master..sysdatabases'), /„sysdatabases“/);
+  assert.match(errs('SELECT name, physical_name FROM sys.master_files'), /„sys\.master_files“/);
+  assert.match(errs('SELECT name FROM [sys].[master_files]'), /„sys\.master_files“/);
+  assert.match(errs('SELECT name, filename FROM sys.sysaltfiles'), /„sys\.sysaltfiles“/);
+  assert.match(errs('SELECT name FROM sysaltfiles'), /„sysaltfiles“/);
+  for (const s of ['SELECT name FROM sys.sysdatabases', 'SELECT name FROM SYSDATABASES', 'SELECT name FROM sys.Master_Files', 'SELECT name FROM SysAltFiles']) refused(s, LIST);
+  // jedna chyba na jeden odkaz (sys.sysdatabases se nehlásí dvakrát)
+  assert.equal(checkSql('SELECT name FROM sys.sysdatabases').errors.length, 1);
+
+  // funkce
+  const FN = /Funkce HAS_DBACCESS není povolená – databázi určuje parametr `database`; seznam dalších databází na serveru model nedostane\./;
+  refused("SELECT HAS_DBACCESS('StwPh_x')", FN);
+  refused('SELECT has_dbaccess (@n)', FN);
+  refused('SELECT [HAS_DBACCESS](@n)', FN);
+  const DBN = /DB_NAME s argumentem není povolené \(jen DB_NAME\(\) bez argumentu = aktuální databáze\) – databázi určuje parametr `database`/;
+  refused('SELECT DB_NAME(5)', DBN);
+  refused('SELECT db_name ( 5 )', DBN);
+  refused('SELECT DB_NAME(/* x */ 5)', DBN);
+  refused('SELECT DB_NAME(\n@i\n)', DBN);
+  refused('SELECT DB_NAME(DB_ID())', DBN);
+  refused('SELECT DB_NAME((5))', DBN);
+  refused('DECLARE @i int = 5; WHILE @i < 40 BEGIN SELECT DB_NAME(@i); SET @i += 1; END', DBN);
+  refused('SELECT [DB_NAME](5)', DBN);
+
+  // povolené: DB_NAME() bez argumentu a slova, která nejsou odkazem na seznam databází
+  ok('SELECT DB_NAME() AS Db');
+  ok('SELECT db_name ( ) AS Db');
+  ok('SELECT DB_NAME(/* aktuální */) AS Db, f.ID FROM dbo.FA AS f');
+  ok('DECLARE @db sysname = DB_NAME(); SELECT @db');
+  ok('SELECT COUNT(*) AS databases FROM dbo.FA AS f');
+  ok('SELECT f.ID AS [databases], f.Cislo AS sys FROM dbo.FA AS f');
+  ok('SELECT databases.ID FROM dbo.FA AS databases');
+  ok('SELECT x.databases, x.master_files FROM (SELECT 1 AS databases, 2 AS master_files) AS x');
+  ok('SELECT d.ID FROM dbo.databases AS d');
+  ok('SELECT sys.ID FROM dbo.FA AS sys');
+  ok("SELECT 'SELECT name FROM sys.databases; DB_NAME(5); HAS_DBACCESS(1)' AS Text");
+  ok('SELECT 1 AS a -- sys.databases, DB_NAME(5)');
+  ok('/* SELECT name FROM sys.databases */ SELECT 1 AS a');
+  ok('SELECT 1 AS HAS_DBACCESS, 2 AS DB_NAME');
+  ok('SELECT t.name FROM sys.tables AS t JOIN sys.columns AS c ON c.object_id = t.object_id');
+  ok('SELECT f.name, f.physical_name FROM sys.database_files AS f');
+  ok('SELECT p.name FROM sys.database_principals AS p');
+  ok("SELECT OBJECT_ID(N'dbo.FA') AS Id, SCHEMA_NAME(1) AS S, OBJECT_NAME(5) AS O");
+  ok("SELECT f.ID, f.Cislo FROM dbo.FA AS f WHERE f.Datum >= '2026-01-01'");
+});

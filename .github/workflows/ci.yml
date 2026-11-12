@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x, 22.x]
+    steps:
+      # konce radku resi .gitattributes (* text=auto eol=lf): checkout je LF i s core.autocrlf=true
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Kontrola PowerShell skriptu a syntaxe JS
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $chyby = 0
+          $skripty = @(Get-ChildItem -Path ps, scripts -Filter *.ps1 -File)
+          if (-not $skripty.Count) { Write-Host 'CHYBA: zadny skript ps/*.ps1 ani scripts/*.ps1'; $chyby++ }
+          foreach ($f in $skripty) {
+            # (a) syntaxe: parser PowerShellu
+            $tokens = $null; $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$tokens, [ref]$errors)
+            foreach ($e in @($errors)) {
+              Write-Host ("CHYBA syntaxe {0}:{1}: {2}" -f $f.Name, $e.Extent.StartLineNumber, $e.Message)
+              $chyby++
+            }
+            # (b) zdroj jen ASCII (PowerShell 5.1 cte soubor bez BOM jako Windows-1250)
+            $bajty = [System.IO.File]::ReadAllBytes($f.FullName)
+            for ($i = 0; $i -lt $bajty.Length; $i++) {
+              if ($bajty[$i] -gt 127) {
+                Write-Host ("CHYBA {0}: bajt mimo ASCII (0x{1:X2}) na pozici {2}" -f $f.Name, $bajty[$i], $i)
+                $chyby++
+                break
+              }
+            }
+          }
+          Write-Host ("PowerShell: zkontrolovano {0} skriptu" -f $skripty.Count)
+          # (c) syntaxe JavaScriptu: server, runner zlatych testu a testy
+          $zdroje = @(Get-ChildItem -Path src -Filter *.js -File) + @(Get-ChildItem -Path eval -Filter *.mjs -File) + @(Get-ChildItem -Path test -Filter *.js -File)
+          if (-not $zdroje.Count) { Write-Host 'CHYBA: zadny soubor src/*.js, eval/*.mjs ani test/*.js'; $chyby++ }
+          foreach ($f in $zdroje) {
+            node --check $f.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host ("CHYBA syntaxe {0}" -f $f.Name)
+              $chyby++
+            }
+          }
+          Write-Host ("JavaScript: zkontrolovano {0} souboru" -f $zdroje.Count)
+          if ($chyby) {
+            Write-Host ("Nalezeno chyb: {0}" -f $chyby)
+            exit 1
+          }
+          Write-Host 'OK'

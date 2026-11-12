@@ -7,30 +7,40 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig, projectRoot } from './config.js';
 import { buildInstructions, WORKFLOW_PROMPT } from './instructions.js';
-import { getHelp, getRules, getSchema, listRuleChapters, listSchemas, resolveSchema } from './knowledge.js';
-import { checkQuery, runQuery } from './exec.js';
+import { compactSetWarnings, getHelp, getRules, getSchema, listRuleChapters, listSchemas, resolveSchema } from './knowledge.js';
+import { checkQuery, probeLogin, runQuery } from './exec.js';
 
 const VERSION = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version;
 const cfg = loadConfig();
 const runQueryEnabled = cfg.runQuery.enabled;
 for (const e of cfg.configErrors) console.error(`[pohoda-mcp] VAROVÁNÍ – chyba v nastavení: ${e}`);
 if (cfg.configErrors.length) console.error('[pohoda-mcp] VAROVÁNÍ – kvůli chybám v nastavení je pohoda_run_query vypnuté; oprav je a server spusť znovu.');
+// upozornění spouštění dotazů nevypínají (např. neplatný režim pravidel → použije se full)
+for (const w of cfg.configWarnings) console.error(`[pohoda-mcp] UPOZORNĚNÍ – nastavení: ${w}`);
+const rulesMode = cfg.rules.mode;
+// pojistka kompaktního režimu: sekce z kompaktní sady, které v jádru pravidel chybí (přečíslovaný zdroj)
+const rulesWarnings = rulesMode === 'compact' ? compactSetWarnings(cfg) : [];
+for (const w of rulesWarnings) console.error(`[pohoda-mcp] UPOZORNĚNÍ – pravidla: ${w}`);
 
-const server = new McpServer({ name: 'pohoda-mcp', version: VERSION }, { instructions: buildInstructions({ runQueryEnabled }) });
+const server = new McpServer({ name: 'pohoda-mcp', version: VERSION }, { instructions: buildInstructions({ runQueryEnabled, rulesMode }) });
 
 const text = (t) => ({ content: [{ type: 'text', text: t }] });
 const fail = (e) => ({ isError: true, content: [{ type: 'text', text: e instanceof Error ? e.message : String(e) }] });
 const wrap = (fn) => async (args) => { try { return text(await fn(args)); } catch (e) { console.error('[pohoda-mcp]', e instanceof Error ? e.message : e); return fail(e); } };
-// čtecí nástroje nad místními znalostmi; pohoda_run_query se navíc připojuje k SQL serveru (openWorldHint)
+// čtecí nástroje nad místními znalostmi; pohoda_run_query a pohoda_status (s probe) se navíc připojují k SQL serveru (openWorldHint)
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const READ_ONLY_SQL = { ...READ_ONLY, openWorldHint: true };
 
 server.registerTool('pohoda_rules', {
   title: 'Pravidla Pohoda SQL',
-  description: 'Doménová pravidla pro psaní SQL nad Pohodou (tabulky, typy dokladů, DPH, stavy k datu, pasti, vzory dotazů). ZAVOLEJ JAKO PRVNÍ před psaním jakéhokoli SQL. Bez parametru vrátí jádro pravidel s rejstříkem kapitol; s `chapter` celou kapitolu (ucetnictvi, sklad, dph, historie, parametry, ulozene-dotazy, sk).',
-  inputSchema: { chapter: z.string().max(50).optional().describe('Název kapitoly, např. "ucetnictvi"; vynech pro jádro') },
+  description: `Doménová pravidla pro psaní SQL nad Pohodou (tabulky, typy dokladů, DPH, stavy k datu, pasti, vzory dotazů). ZAVOLEJ JAKO PRVNÍ před psaním jakéhokoli SQL. Bez parametru vrátí jádro pravidel s rejstříkem kapitol${rulesMode === 'compact' ? ' (kompaktní: základní sekce a rejstřík ostatních sekcí jádra, které se načítají přes `section`)' : ''}; s \`chapter\` celou kapitolu (ucetnictvi, sklad, dph, historie, parametry, ulozene-dotazy, sk). \`section\` = jedna sekce jádra včetně podsekcí podle čísla z nadpisu (např. "5", "5.1", "11.15", "uvod"), spolu s \`chapter\` sekce z kapitoly. \`search\` = hledání v jádru i kapitolách (víc slov = všechna musí být v jedné sekci); vrátí seznam sekcí (id, kapitola, titulek, velikost, řádky se shodou), které pak načteš přes \`section\`. \`section\` a \`search\` nejde zadat současně.`,
+  inputSchema: {
+    chapter: z.string().max(50).optional().describe('Název kapitoly, např. "ucetnictvi"; vynech pro jádro'),
+    section: z.string().max(50).optional().describe('Id sekce, např. "5", "5.1", "11.15" nebo "uvod"; bez chapter z jádra, s chapter z kapitoly'),
+    search: z.string().max(200).optional().describe('Hledané výrazy, např. "storno" nebo "stav k datu" (nejvýš 12 slov, všechna musí být v jedné sekci; na diakritice a velikosti písmen nezáleží); s chapter hledá jen v té kapitole'),
+  },
   annotations: READ_ONLY,
-}, wrap(({ chapter }) => getRules(cfg, chapter)));
+}, wrap((a) => getRules(cfg, a ?? {})));
 
 server.registerTool('pohoda_schema', {
   title: 'Schéma databáze Pohody',
@@ -84,25 +94,38 @@ if (runQueryEnabled) server.registerTool('pohoda_run_query', {
 
 server.registerTool('pohoda_status', {
   title: 'Stav serveru',
-  description: 'Co server právě používá: verze, složka znalostí, dostupná schémata a kapitoly pravidel, zda je zapnuté pohoda_run_query a které databáze jsou povolené. Nepřipojuje se k databázi.',
-  inputSchema: {},
-  annotations: READ_ONLY,
-}, wrap(() => JSON.stringify({
-  version: VERSION,
-  agentDir: cfg.agentDir,
-  configFile: cfg.configFile,
-  configFound: cfg.configFound,
-  configErrors: cfg.configErrors,
-  schemas: listSchemas(cfg),
-  ruleChapters: listRuleChapters(cfg),
-  runQuery: { enabled: cfg.runQuery.enabled, allowedDatabases: cfg.runQuery.allowedDatabases, server: cfg.runQuery.server, maxRowsPerSet: cfg.runQuery.maxRowsPerSet, maxRowsHard: cfg.runQuery.maxRowsHard },
-}, null, 2)));
+  description: 'Co server právě používá: verze, složka znalostí, dostupná schémata a kapitoly pravidel, režim pravidel (`rulesMode`: full / compact), upozornění k nastavení (`configWarnings`), zda je zapnuté pohoda_run_query a které databáze jsou povolené. Bez `probe` se k databázi nepřipojuje. S `probe: true` se připojí k povolené databázi a přidá `loginProbe`: zda SQL login smí zapisovat (`writable`, `reasons`), do kolika dalších databází mimo povolené se dostane (`otherDatabases`) a v kolika z nich smí zapisovat (`otherWritableDatabases`) – jen počty, názvy nikdy; žádný dotaz do dat nespouští. Když kontrolu nejde provést (vypnuté pohoda_run_query, nepovolená databáze, nedostupný server), je v `loginProbe.error` důvod.',
+  inputSchema: {
+    probe: z.boolean().optional().describe('true = ověřit oprávnění SQL loginu připojením k databázi (výchozí false = bez připojení)'),
+    database: z.string().max(100).optional().describe('Jen s probe: název databáze z povolených; výchozí první povolená'),
+  },
+  // s probe se připojuje k SQL serveru, proto stejná anotace jako pohoda_run_query
+  annotations: READ_ONLY_SQL,
+}, wrap(async ({ probe, database } = {}) => {
+  const status = {
+    version: VERSION,
+    agentDir: cfg.agentDir,
+    configFile: cfg.configFile,
+    configFound: cfg.configFound,
+    configErrors: cfg.configErrors,
+    configWarnings: [...cfg.configWarnings, ...rulesWarnings],
+    schemas: listSchemas(cfg),
+    ruleChapters: listRuleChapters(cfg),
+    rulesMode,
+    runQuery: { enabled: cfg.runQuery.enabled, allowedDatabases: cfg.runQuery.allowedDatabases, server: cfg.runQuery.server, maxRowsPerSet: cfg.runQuery.maxRowsPerSet, maxRowsHard: cfg.runQuery.maxRowsHard },
+  };
+  if (probe === true) {
+    // chyba kontroly (vypnuté spouštění, nepovolená databáze, nedostupný server, …) nesmí shodit zbytek stavu ani zůstat zamlčená
+    try { status.loginProbe = await probeLogin(cfg, { database }); } catch (e) { status.loginProbe = { error: e instanceof Error ? e.message : String(e) }; }
+  }
+  return JSON.stringify(status, null, 2);
+}));
 
 server.registerPrompt('pohoda_sql', {
   title: 'Napsat SQL pro Pohodu',
   description: `Spustí pracovní postup: pravidla → schéma → skript → kontrola${runQueryEnabled ? ' → (volitelně) ověření nad daty' : ''}.`,
   argsSchema: { zadani: z.string().describe('Co má dotaz vrátit / změnit') },
-}, ({ zadani }) => ({ messages: [{ role: 'user', content: { type: 'text', text: WORKFLOW_PROMPT(zadani, { runQueryEnabled }) } }] }));
+}, ({ zadani }) => ({ messages: [{ role: 'user', content: { type: 'text', text: WORKFLOW_PROMPT(zadani, { runQueryEnabled, rulesMode }) } }] }));
 
 await server.connect(new StdioServerTransport());
 console.error(`[pohoda-mcp ${VERSION}] běží; znalosti: ${cfg.agentDir}; run_query: ${cfg.runQuery.enabled ? cfg.runQuery.allowedDatabases.join(',') : 'vypnuto'}`);

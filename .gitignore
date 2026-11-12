@@ -8,3 +8,4 @@ secrets/
 scripts/sync.local.json
 knowledge.new/
 knowledge.old/
+eval/results/

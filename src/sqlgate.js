@@ -10,7 +10,11 @@
 //   naopak `TRIM(x FROM dbo.FA.Sloupec)` a `CROSS APPLY t.XmlSloupec.nodes('…')` se odmítnou chybně (pomůže dvoudílný zápis),
 // - alias v UPDATE/DELETE se přijme jen s vazbou na #/@ objekt ve vlastní klauzuli FROM téhož příkazu (viz aliasIsTemp),
 // - řádek GO uvnitř víceřádkového řetězce/komentáře se odmítá, protože runner (ps\Run-Query.ps1) dělí dávky bez ohledu na ně,
-// - dávka (část mezi řádky GO) musí začínat povoleným příkazem – holé volání procedury bez EXEC jinak nejde poznat.
+// - dávka (část mezi řádky GO) musí začínat povoleným příkazem – holé volání procedury bez EXEC jinak nejde poznat,
+// - seznam databází serveru (sys.databases, sys.sysdatabases, sysdatabases, sys.master_files, sys.sysaltfiles, HAS_DBACCESS,
+//   DB_NAME(<argument>)) se odmítá kdekoli v kódu: názvy dalších databází (obsahují IČO firem) se nemají dostat k modelu.
+//   `DB_NAME()` bez argumentu (aktuální databáze) je povolené. I tohle je jen pojistka a nepokrývá každou cestu k názvům –
+//   skutečné řešení je oprava oprávnění loginu: odebrat mu přístup do cizích databází, případně `DENY VIEW ANY DATABASE`.
 
 const RE_WORD = /[\p{L}\p{N}_@#$]/u;
 // řídicí znaky, které SQL Server bere jako mezeru, ale běžný text je neobsahuje (TAB, LF, CR jsou v pořádku)
@@ -124,6 +128,11 @@ const NOT_ALIAS = new Set([
   'WHERE', 'JOIN', 'INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS', 'OUTER', 'ON', 'GROUP', 'ORDER', 'HAVING', 'UNION', 'EXCEPT', 'INTERSECT',
   'OPTION', 'WITH', 'FOR', 'PIVOT', 'UNPIVOT', 'SET', 'INTO', 'OUTPUT', 'WHEN', 'THEN', 'ELSE', 'END', 'WINDOW', 'TABLESAMPLE', ...STMT_STOP,
 ]);
+
+// Systémové pohledy se seznamem databází serveru (za `sys.`) a jejich starší názvy použitelné i bez schématu.
+const DB_LIST_VIEWS = new Set(['databases', 'sysdatabases', 'master_files', 'sysaltfiles']);
+const DB_LIST_BARE = new Set(['sysdatabases', 'sysaltfiles']);
+const DB_LIST_HINT = 'databázi určuje parametr `database`; seznam dalších databází na serveru model nedostane';
 
 const up = (k) => (k && k.t === 'w' && !k.q ? k.v.toUpperCase() : '');
 const isP = (k, ch) => !!k && k.t === 'p' && k.v === ch;
@@ -285,6 +294,15 @@ export function checkSql(sqlIn) {
 
     if (k.t === 'w' && /^(sp|xp)_/i.test(k.v)) errors.push(`Zakázaná systémová procedura: ${k.v}`);
     if (isP(k, '{') && (next === 'CALL' || (isP(t[i + 1], '?') && up(t[i + 3]) === 'CALL'))) errors.push('Zakázané volání procedury: {call ...}');
+    // seznam databází serveru: platí i pro názvy v [] / "" (proto před `if (!u)`), jako zdroj i kdekoli jinde v kódu
+    if (k.t === 'w') {
+      const lv = k.v.toLowerCase();
+      const member = isP(t[i + 1], '.') && t[i + 2]?.t === 'w' ? t[i + 2].v.toLowerCase() : '';
+      if (lv === 'sys' && DB_LIST_VIEWS.has(member)) errors.push(`Odkaz na seznam databází serveru („sys.${member}“) není povolený – ${DB_LIST_HINT}.`);
+      else if (DB_LIST_BARE.has(lv) && !(t[i - 2]?.t === 'w' && t[i - 2].v.toLowerCase() === 'sys' && isP(t[i - 1], '.'))) errors.push(`Odkaz na seznam databází serveru („${lv}“) není povolený – ${DB_LIST_HINT}.`);
+      else if (lv === 'has_dbaccess' && isP(t[i + 1], '(')) errors.push(`Funkce HAS_DBACCESS není povolená – ${DB_LIST_HINT}.`);
+      else if (lv === 'db_name' && isP(t[i + 1], '(') && !isP(t[i + 2], ')')) errors.push(`DB_NAME s argumentem není povolené (jen DB_NAME() bez argumentu = aktuální databáze) – ${DB_LIST_HINT}.`);
+    }
     if (!u) continue;
 
     if (FORBIDDEN.has(u)) errors.push(`Zakázané klíčové slovo: ${u === 'IDENTITY_INSERT' ? 'SET IDENTITY_INSERT' : u}`);
