@@ -21,7 +21,7 @@ jobs:
       # konce radku resi .gitattributes (* text=auto eol=lf): checkout je LF i s core.autocrlf=true
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
